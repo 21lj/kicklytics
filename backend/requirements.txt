@@ -1,0 +1,6 @@
+numpy
+pandas
+mplsoccer
+streamlit
+opencv-python
+google-genai
