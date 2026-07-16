@@ -220,3 +220,4 @@ __marimo__/
 # my need
 backend/input_videos/
 backend/venv
+backend/output_videos

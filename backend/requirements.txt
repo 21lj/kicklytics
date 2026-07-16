@@ -4,3 +4,4 @@ mplsoccer
 streamlit
 opencv-python
 google-genai
+ultralytics
