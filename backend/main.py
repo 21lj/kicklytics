@@ -1,9 +1,14 @@
 from utils.video_utils import get_video, save_video
+from features.tracker import Tracker
+
 
 def main():
     video_frames = get_video('./input_videos/test1.mp4')
 
-    save_video(video_frames, './output_videos/out.avi')
+    tracker = Tracker('./model/yolov8l/yolov8l.pt')
+    tracks = tracker.get_object_tracks(video_frames, read_from_stub=True, stub_path='./stubs/track_stubs.pkl')
+    outframe = tracker.draw_annotations(video_frames, tracks)
+    save_video(outframe, './output_videos/out.avi')
 
 
 
