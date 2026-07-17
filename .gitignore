@@ -221,3 +221,5 @@ __marimo__/
 backend/input_videos/
 backend/venv
 backend/output_videos
+backend/kicklytics-models
+backend/model
