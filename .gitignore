@@ -223,3 +223,4 @@ backend/venv
 backend/output_videos
 backend/kicklytics-models
 backend/model
+backend/stubs
