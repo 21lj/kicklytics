@@ -8,6 +8,7 @@ def get_video(video_path):
         if not ret:
             break
         frames.append(frame)
+    cap.release()
     return frames
 
 def save_video(output_video_frames, output_video_path):

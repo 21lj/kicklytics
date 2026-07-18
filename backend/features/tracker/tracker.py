@@ -64,17 +64,12 @@ class Tracker:
                 if class_id == class_name_rev['player']:
                     tracks['players'][frame_no][track_id] = {'bbox': bbox}
 
-                if class_id == class_name_rev['referee']:
+                elif class_id == class_name_rev['referee']:
                     tracks['referee'][frame_no][track_id] = {'bbox': bbox}
 
-            for frame_detect in detection_with_track:
-                bbox = frame_detect[0].tolist()
-                class_id = frame_detect[3]
-
-                if class_id == class_name_rev['ball']:
-                    tracks['players'][frame_no][1] = {'bbox': bbox}
-
-            
+                elif class_id == class_name_rev['ball']:
+                    tracks['ball'][frame_no][track_id] = {'bbox': bbox}
+                            
             # print(sv_detection)
         
         if stub_path is not None:
@@ -133,7 +128,6 @@ class Tracker:
     
     def draw_triangle(self, frame, bbox, color):
         y=int(bbox[1])
-        print(y)
         x, _ = get_center_of_bbox(bbox)
 
         triangle_points = np.array([
@@ -144,6 +138,7 @@ class Tracker:
 
         cv2.drawContours(frame, [triangle_points],0,color, cv2.FILLED)
         cv2.drawContours(frame, [triangle_points],0,(0,0,0), 2)
+        return frame
 
     def draw_annotations(self, video_frames, tracks):
         out_video_frames = []
