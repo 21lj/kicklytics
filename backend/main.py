@@ -7,6 +7,7 @@ def main():
 
     tracker = Tracker('./model/yolo11x/yolo11.pt')
     tracks = tracker.get_object_tracks(video_frames, read_from_stub=True, stub_path='./stubs/track_stubs.pkl')
+    tracks["ball"] = tracker.interpolate_ball_positions(tracks["ball"])
     
     team_assigner = TeamAssigner()
     team_assigner.assign_team_color(video_frames[0], tracks['players'][0])

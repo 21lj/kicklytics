@@ -1,6 +1,7 @@
 from ultralytics import YOLO
 import supervision as sv
 import numpy as np
+import pandas as pd
 import cv2
 from utils import get_center_of_bbox, get_bbox_width
 import pickle
@@ -68,7 +69,8 @@ class Tracker:
                     tracks['referee'][frame_no][track_id] = {'bbox': bbox}
 
                 elif class_id == class_name_rev['ball']:
-                    tracks['ball'][frame_no][track_id] = {'bbox': bbox}
+                    # tracks['ball'][frame_no][track_id] = {'bbox': bbox}
+                    tracks['ball'][frame_no][1] = {'bbox': bbox}
                             
             # print(sv_detection)
         
@@ -161,6 +163,34 @@ class Tracker:
             out_video_frames.append(frame)
         return out_video_frames
 
+    def interpolate_ball_positions(self, ball_positions):
+        ball_positions = [x.get(1,{}).get('bbox', []) for x in ball_positions]
+        df_ball_positions = pd.DataFrame(ball_positions,columns=['x1','y1','x2','y2'])
+
+        # Interpolate missing values
+        df_ball_positions = df_ball_positions.interpolate()
+        df_ball_positions = df_ball_positions.bfill()
+
+        ball_positions = [{1: {"bbox":x}} for x in df_ball_positions.to_numpy().tolist()]
+
+        return ball_positions
+
+    # def interpolate_ball_positions(self, ball_positions):
+    #     formatted_positions = []
+    #     for position in ball_positions:
+    #         if position:
+    #             ball_id = list(position.keys())[0]
+    #             bbox = position[ball_id]['bbox']
+    #             formatted_positions.append(bbox)
+    #         else:
+    #             formatted_positions.append([None, None, None, None])
+    #     df_ball_positions = pd.DataFrame(formatted_positions,columns=['x1','y1','x2','y2'])
+
+    #     # Interpolate missing values
+    #     df_ball_positions = df_ball_positions.interpolate()
+    #     df_ball_positions = df_ball_positions.bfill()
+
+    #     return ball_positions
     
 
 
