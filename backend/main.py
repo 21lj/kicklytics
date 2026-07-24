@@ -5,6 +5,7 @@ from features.player_ball_assigner import PlayerBallAssigner
 
 def main():
     video_frames = get_video('./input_videos/test1.mp4')
+    # video_frames = get_video('./input_videos/test (2).mp4')
 
     tracker = Tracker('./model/yolo11x/yolo11.pt')
     tracks = tracker.get_object_tracks(video_frames, read_from_stub=True, stub_path='./stubs/track_stubs.pkl')
