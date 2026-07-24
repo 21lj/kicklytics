@@ -6,6 +6,8 @@ import cv2
 from utils import get_center_of_bbox, get_bbox_width
 import pickle
 import os
+import math
+from features.possession_track import PossessionTracker, draw_possession
 
 class Tracker:
     def __init__(self, model_path):
@@ -142,8 +144,14 @@ class Tracker:
         cv2.drawContours(frame, [triangle_points],0,(0,0,0), 2)
         return frame
 
+
     def draw_annotations(self, video_frames, tracks):
         out_video_frames = []
+        team_colors = {
+            1: (0, 0, 255),   
+            2: (255, 0, 0)    
+        }
+        possession_tracker = PossessionTracker()
         for frame_num, frame in enumerate(video_frames):
             frame = frame.copy()
             ball_dict = tracks["ball"][frame_num]
@@ -154,11 +162,34 @@ class Tracker:
                 color = player.get("team_color", (0, 0, 215))
                 frame = self.draw_ellipse(frame, player['bbox'], color, track_id)
 
+                if player.get('has_ball', False):
+                    frame = self.draw_triangle(frame, player['bbox'], (0, 0, 255))
+
+                # team color for possession bar
+                if "team" in player and "team_color" in player:
+                    team_colors[player["team"]] = tuple(int(c) for c in player["team_color"])
+
             for tid, ref in referee_dict.items():
                 frame = self.draw_ellipse(frame, ref['bbox'], (0, 255, 255))
 
+            player_boxes = []
+            team_ids = []
+
+            for player_id, player_track in tracks["players"][frame_num].items():
+                player_boxes.append(player_track["bbox"])
+                team_ids.append(int(player_track["team"]))
+
             for track_id, ball in ball_dict.items():
                 frame = self.draw_triangle(frame, ball['bbox'], (0, 100, 0))
+
+                state = possession_tracker.update(
+                        ball_bbox=ball["bbox"],
+                        player_boxes=player_boxes,
+                        team_ids=team_ids,
+                        frame_number=frame_num
+                    )
+                frame = draw_possession(frame, state, team_colors)
+               
 
             out_video_frames.append(frame)
         return out_video_frames
