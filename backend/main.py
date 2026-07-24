@@ -15,10 +15,34 @@ def main():
     team_assigner.assign_team_color(video_frames[0], tracks['players'][0])
 
     for frame_no, player_track in enumerate(tracks['players']):
+
+        # Assign teams to outfield players
         for player_id, track in player_track.items():
-            team = team_assigner.get_player_team(video_frames[frame_no], track['bbox'], player_id)
-            tracks['players'][frame_no][player_id]['team'] = team
-            tracks['players'][frame_no][player_id]['team_color'] = team_assigner.team_color[team]
+            if track["is_goalkeeper"]:
+                continue
+            team = team_assigner.get_player_team(
+                video_frames[frame_no],
+                track['bbox'],
+                player_id
+            )
+            
+            track['team'] = team
+            track['team_color'] = team_assigner.team_color[team]
+
+        # Assign goalkeeper teams
+        for player_id, track in player_track.items():
+            if not track["is_goalkeeper"]:
+                continue
+            team = team_assigner.assign_goalkeeper_team(
+                track['bbox'],
+                player_track
+            )
+
+            if team is None:
+                continue
+
+            track['team'] = team
+            track['team_color'] = team_assigner.team_color[team]
 
     player_assigner = PlayerBallAssigner()
     for frame_no, player_track in enumerate(tracks['players']):

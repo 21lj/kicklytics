@@ -1,4 +1,6 @@
 from sklearn.cluster import KMeans
+import math
+from collections import Counter
 
 class TeamAssigner:
     def __init__(self):
@@ -26,6 +28,8 @@ class TeamAssigner:
     def assign_team_color(self, frame, player_detections):
         player_color = []
         for _, player_detection in player_detections.items():
+            if player_detection.get("is_goalkeeper"):
+                continue
             bbox = player_detection['bbox']
             jersey_color = self.get_jersey_color(frame, bbox)
             player_color.append(jersey_color)
@@ -45,3 +49,46 @@ class TeamAssigner:
         team_id+=1
         self.player_team_dict[player_id] = team_id
         return team_id
+
+    
+
+    def assign_goalkeeper_team(self, goalkeeper_bbox, player_tracks, k=5):
+        """
+        Assign the goalkeeper's team based on the majority team
+        among the k nearest outfield players.
+        """
+
+        gx = (goalkeeper_bbox[0] + goalkeeper_bbox[2]) / 2
+        gy = (goalkeeper_bbox[1] + goalkeeper_bbox[3]) / 2
+
+        neighbours = []
+
+        for player in player_tracks.values():
+
+            if player.get("is_goalkeeper"):
+                continue
+
+        # Ignore players without a team
+            if "team" not in player:
+                continue
+
+            x1, y1, x2, y2 = player["bbox"]
+
+            px = (x1 + x2) / 2
+            py = (y1 + y2) / 2
+
+            distance = math.hypot(px - gx, py - gy)
+
+            neighbours.append((distance, player["team"]))
+
+        if not neighbours:
+            return None
+
+        neighbours.sort(key=lambda x: x[0])
+
+        # nearest = neighbours[:k]
+        nearest = sorted(neighbours, key=lambda x: x[0])[:k]
+
+        votes = Counter(team for _, team in nearest)
+
+        return votes.most_common(1)[0][0]

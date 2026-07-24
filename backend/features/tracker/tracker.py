@@ -48,10 +48,6 @@ class Tracker:
             class_name_rev = {v: k for k, v in class_names.items()}
 
             sv_detection = sv.Detections.from_ultralytics(detection)
-            # converting GK -> player
-            for obj_idx, class_id in enumerate(sv_detection.class_id):
-                if class_names[class_id] == "goalkeeper":
-                    sv_detection.class_id[obj_idx] = class_name_rev['player']
 
             detection_with_track = self.tracker.update_with_detections(sv_detection) #generates track ids for bounding boxes
 
@@ -64,8 +60,22 @@ class Tracker:
                 class_id = frame_detect[3]
                 track_id = frame_detect[4]
 
-                if class_id == class_name_rev['player']:
-                    tracks['players'][frame_no][track_id] = {'bbox': bbox}
+                print(class_names[class_id], class_id)
+
+                # if class_id == class_name_rev['player']:
+                #     tracks['players'][frame_no][track_id] = {'bbox': bbox}
+
+                if class_names[class_id] == "player":
+                    tracks["players"][frame_no][track_id] = {
+                    "bbox": bbox,
+                    "is_goalkeeper": False
+                }
+
+                elif class_names[class_id] == "goalkeeper":
+                    tracks["players"][frame_no][track_id] = {
+                    "bbox": bbox,
+                    "is_goalkeeper": True
+                    }
 
                 elif class_id == class_name_rev['referee']:
                     tracks['referee'][frame_no][track_id] = {'bbox': bbox}
