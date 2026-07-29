@@ -1,1 +1,1 @@
-from .team_assigner import TeamAssigner
+from .team_assigner import TeamClassifier, resolve_goalkeepers_teamid
