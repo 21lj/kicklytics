@@ -1,19 +1,23 @@
-import cv2
+import supervision as sv
+from tqdm import tqdm
 
-def get_video(video_path):
-    cap = cv2.VideoCapture(video_path)
-    frames=[]
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frames.append(frame)
-    cap.release()
-    return frames
 
-def save_video(output_video_frames, output_video_path):
-    fourcc=cv2.VideoWriter_fourcc(*'XVID')
-    out = cv2.VideoWriter(output_video_path, fourcc, 24, (output_video_frames[0].shape[1], output_video_frames[0].shape[0]))
-    for frame in output_video_frames:
-        out.write(frame)
-    out.release()
+def extract_crops(video_path, model, stride=30, player_id=2, conf=0.3, nms_threshold=0.5):
+    """
+    Extract player crops from a video to fit the team classifier.
+    """
+    frame_generator = sv.get_video_frames_generator(video_path, stride=stride)
+    crops = []
+
+    for frame in tqdm(frame_generator, desc='Collecting crops'):
+        result = model.predict(frame, conf=conf)[0]
+        detections = sv.Detections.from_ultralytics(result)
+        detections = detections.with_nms(threshold=nms_threshold, class_agnostic=True)
+        detections = detections[detections.class_id == player_id]
+
+        crops += [
+            sv.crop_image(frame, xyxy)
+            for xyxy in detections.xyxy
+        ]
+
+    return crops

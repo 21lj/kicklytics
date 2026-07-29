@@ -1,94 +1,102 @@
+import numpy as np
+import torch
+import supervision as sv
+from PIL import Image
+from more_itertools import chunked
 from sklearn.cluster import KMeans
-import math
-from collections import Counter
+from transformers import AutoProcessor, SiglipVisionModel
+import umap
 
-class TeamAssigner:
-    def __init__(self):
-        self.team_color = {}
-        self.player_team_dict = {}
+SIGLIP_MODEL_PATH = 'google/siglip-base-patch16-224'
 
-    def get_clustering_model(self, image):
-        image_2d = image.reshape(-1, 3)
-        kmeans = KMeans(n_clusters=2, init="k-means++", n_init=1)
-        kmeans.fit(image_2d)
-        return kmeans
 
-    def get_jersey_color(self, frame, bbox):
-        image = frame[int(bbox[1]): int(bbox[3]), int(bbox[0]): int(bbox[2])]
-        jersey = image[0: int(image.shape[0]/2), :]
-        kmeans = self.get_clustering_model(jersey)
-        labels = kmeans.labels_
-        clustered_image = labels.reshape(jersey.shape[0], jersey.shape[1])
-        corner_cluster = [clustered_image[0,0], clustered_image[0, -1], clustered_image[-1, 0], clustered_image[-1, -1]]
-        non_player_cluster = max(set(corner_cluster), key=corner_cluster.count)
-        player_cluster = 1 - non_player_cluster
-        player_color = kmeans.cluster_centers_[player_cluster]
-        return player_color
-    
-    def assign_team_color(self, frame, player_detections):
-        player_color = []
-        for _, player_detection in player_detections.items():
-            if player_detection.get("is_goalkeeper"):
-                continue
-            bbox = player_detection['bbox']
-            jersey_color = self.get_jersey_color(frame, bbox)
-            player_color.append(jersey_color)
+class TeamClassifier:
+    """
+    Embeddings-based team classifier using Siglip + UMAP + KMeans.
+    Mirrors the concept shown in the notebook.
+    """
 
-        kmeans = KMeans(n_clusters=2, init="k-means++", n_init=1)
-        kmeans.fit(player_color)
-        self.kmeans = kmeans
-        self.team_color[1] = kmeans.cluster_centers_[0]
-        self.team_color[2] = kmeans.cluster_centers_[1]
-    
-    def get_player_team(self, frame, player_bbox, player_id):
-        if player_id in self.player_team_dict:
-            return self.player_team_dict[player_id]
-        
-        player_color = self.get_jersey_color(frame, player_bbox)
-        team_id = self.kmeans.predict(player_color.reshape(1, -1))[0]
-        team_id+=1
-        self.player_team_dict[player_id] = team_id
-        return team_id
+    def __init__(self, device='cuda', n_clusters=2, batch_size=32):
+        self.device = device
+        self.n_clusters = n_clusters
+        self.batch_size = batch_size
 
-    
+        self.embeddings_model = SiglipVisionModel.from_pretrained(SIGLIP_MODEL_PATH).to(device)
+        self.embeddings_processor = AutoProcessor.from_pretrained(SIGLIP_MODEL_PATH)
 
-    def assign_goalkeeper_team(self, goalkeeper_bbox, player_tracks, k=5):
-        """
-        Assign the goalkeeper's team based on the majority team
-        among the k nearest outfield players.
-        """
+        self.reducer = umap.UMAP(n_components=3)
+        self.clustering_model = KMeans(n_clusters=n_clusters)
+        self.fitted = False
 
-        gx = (goalkeeper_bbox[0] + goalkeeper_bbox[2]) / 2
-        gy = (goalkeeper_bbox[1] + goalkeeper_bbox[3]) / 2
+    # ------------------------------------------------------------------ #
+    def _ensure_pil(self, images):
+        """Convert OpenCV/numpy crops to PIL if necessary."""
+        pil_images = []
+        for img in images:
+            if isinstance(img, np.ndarray):
+                pil_images.append(sv.cv2_to_pillow(img))
+            elif isinstance(img, Image.Image):
+                pil_images.append(img)
+            else:
+                raise TypeError(f"Unsupported image type: {type(img)}")
+        return pil_images
 
-        neighbours = []
+    # ------------------------------------------------------------------ #
+    def _extract_embeddings(self, crops):
+        crops = self._ensure_pil(crops)
+        batches = chunked(crops, self.batch_size)
+        data = []
 
-        for player in player_tracks.values():
+        with torch.no_grad():
+            for batch in batches:
+                inputs = self.embeddings_processor(images=batch, return_tensors='pt').to(self.device)
+                outputs = self.embeddings_model(**inputs)
+                embeddings = torch.mean(outputs.last_hidden_state, dim=1).cpu().detach().numpy()
+                data.append(embeddings)
 
-            if player.get("is_goalkeeper"):
-                continue
+        return np.concatenate(data)
 
-        # Ignore players without a team
-            if "team" not in player:
-                continue
+    # ------------------------------------------------------------------ #
+    def fit(self, crops):
+        data = self._extract_embeddings(crops)
+        projections = self.reducer.fit_transform(data)
+        self.clustering_model.fit(projections)
+        self.fitted = True
 
-            x1, y1, x2, y2 = player["bbox"]
+    # ------------------------------------------------------------------ #
+    def predict(self, crops):
+        if not self.fitted:
+            raise RuntimeError("TeamClassifier must be fitted before predict().")
+        data = self._extract_embeddings(crops)
+        projections = self.reducer.transform(data)
+        return self.clustering_model.predict(projections)
 
-            px = (x1 + x2) / 2
-            py = (y1 + y2) / 2
 
-            distance = math.hypot(px - gx, py - gy)
+# ---------------------------------------------------------------------- #
+def resolve_goalkeepers_teamid(player_detections, gk_detections):
+    """
+    Assign goalkeeper team IDs based on proximity to team centroids.
+    """
+    if len(player_detections) == 0 or len(gk_detections) == 0:
+        return np.array([])
 
-            neighbours.append((distance, player["team"]))
+    gk_xy = gk_detections.get_anchors_coordinates(sv.Position.BOTTOM_CENTER)
+    player_xy = player_detections.get_anchors_coordinates(sv.Position.BOTTOM_CENTER)
 
-        if not neighbours:
-            return None
+    team_0_mask = player_detections.class_id == 0
+    team_1_mask = player_detections.class_id == 1
 
-        neighbours.sort(key=lambda x: x[0])
+    # Fallback if one team isn't present
+    if not np.any(team_0_mask) or not np.any(team_1_mask):
+        return np.zeros(len(gk_detections), dtype=int)
 
-        # nearest = neighbours[:k]
-        nearest = sorted(neighbours, key=lambda x: x[0])[:k]
+    team_0_centroid = player_xy[team_0_mask].mean(axis=0)
+    team_1_centroid = player_xy[team_1_mask].mean(axis=0)
 
-        votes = Counter(team for _, team in nearest)
+    gk_team_ids = []
+    for gkxy in gk_xy:
+        dist_0 = np.linalg.norm(gkxy - team_0_centroid)
+        dist_1 = np.linalg.norm(gkxy - team_1_centroid)
+        gk_team_ids.append(0 if dist_0 < dist_1 else 1)
 
-        return votes.most_common(1)[0][0]
+    return np.array(gk_team_ids)
