@@ -7,3 +7,4 @@ tqdm
 python-dotenv
 scikit-learn
 numpy
+more-itertools
