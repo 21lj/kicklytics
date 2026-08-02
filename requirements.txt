@@ -8,3 +8,8 @@ python-dotenv
 scikit-learn
 numpy
 more-itertools
+transformers
+umap-learn
+torch
+torchvision
+pillow
