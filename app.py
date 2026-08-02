@@ -7,9 +7,10 @@ from tqdm import tqdm
 from ultralytics import YOLO
 from huggingface_hub import hf_hub_download
 
-from utils.video_utils import extract_crops, write_touches
-from features.team_assigner import TeamClassifier, resolve_goalkeepers_teamid
-from features.player_ball_assigner import PlayerBallAssigner
+from backend.utils.video_utils import extract_crops, write_touches
+from backend.features.team_assigner import TeamClassifier, resolve_goalkeepers_teamid
+from backend.features.player_ball_assigner import PlayerBallAssigner
+
 
 import torch
 
