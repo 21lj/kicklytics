@@ -1,0 +1,9 @@
+ultralytics
+supervision
+opencv-python-headless
+gradio
+huggingface_hub
+tqdm
+python-dotenv
+scikit-learn
+numpy
