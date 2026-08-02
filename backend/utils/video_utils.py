@@ -21,3 +21,9 @@ def extract_crops(video_path, model, stride=30, player_id=2, conf=0.3, nms_thres
         ]
 
     return crops
+
+def write_touches(team_touches):
+    print(team_touches)
+    with open("../output_videos/clip-info/info.txt", "w") as f:
+        for team_id, count in team_touches.items():
+            f.write(f"Team {team_id}: {count} touches\n")

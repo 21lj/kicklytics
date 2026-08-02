@@ -6,8 +6,9 @@ import supervision as sv
 from tqdm import tqdm
 from ultralytics import YOLO
 
-from utils.video_utils import extract_crops
+from utils.video_utils import extract_crops, write_touches
 from features.team_assigner import TeamClassifier, resolve_goalkeepers_teamid
+from features.player_ball_assigner import PlayerBallAssigner
 
 # ==================== CONFIG ====================
 INPUT_VIDEO   = "./input_videos/test-3.mp4"
@@ -24,10 +25,10 @@ print(BALL_ID)
 
 
 def main():
-    # 1. Load model
+    # Load model
     model = YOLO(MODEL_PATH)
 
-    # 2. Extract crops & fit team classifier
+    # Extract crops & fit team classifier
     print("[INFO] Extracting player crops for team classification...")
     crops = extract_crops(INPUT_VIDEO, model, stride=30, player_id=PLAYER_ID)
     print(f"[INFO] Collected {len(crops)} crops.")
@@ -36,7 +37,7 @@ def main():
     team_classifier.fit(crops)
     print("[INFO] Team classifier fitted.")
 
-    # 3. Annotators
+    # Annotators
     ellipse_annotator = sv.EllipseAnnotator(
         thickness=2,
         color=sv.ColorPalette.from_hex(['#00BFFF', '#FF1493', '#FFD700'])
@@ -48,16 +49,26 @@ def main():
         color=sv.Color.from_hex('#00FF41')
     )
 
-    # 4. Tracker
+    possession_annotator = sv.TriangleAnnotator(
+        base=20,
+        height=17,
+        color=sv.Color.from_hex('#FF0000')
+    )
+
+    # Tracker
     tracker = sv.ByteTrack()
     tracker.reset()
+    ball_assigner = PlayerBallAssigner()
+    # Track touches
+    team_touches = {0: 0, 1: 0}
+    last_assigned_id = None
 
-    # 5. Video I/O
+    # Video I/O
     video_info = sv.VideoInfo.from_video_path(INPUT_VIDEO)
     video_sink = sv.VideoSink(OUTPUT_VIDEO, video_info=video_info)
     frame_generator = sv.get_video_frames_generator(INPUT_VIDEO)
 
-    # 6. Process frames
+    # Process frames
     print("[INFO] Processing video...")
     with video_sink:
         for frame in tqdm(frame_generator, total=video_info.total_frames):
@@ -88,6 +99,26 @@ def main():
             if len(gk_detections) > 0 and len(player_detections) > 0:
                 gk_detections.class_id = resolve_goalkeepers_teamid(player_detections, gk_detections)
 
+            # ---- Ball possession ----
+            possession_detections = sv.Detections.empty()
+            if len(ball_detections) > 0:
+                ball_bbox = ball_detections.xyxy[0]
+                candidates = sv.Detections.merge([player_detections, gk_detections])
+                players_dict = {
+                    tid: {'bbox': bbox}
+                    for tid, bbox in zip(candidates.tracker_id, candidates.xyxy)
+                }
+                assigned_id = ball_assigner.assign_ball_to_player(players_dict, ball_bbox)
+                if assigned_id != -1:
+                    possession_detections = candidates[candidates.tracker_id == assigned_id]
+
+                    if assigned_id != last_assigned_id:
+                            team_id = int(possession_detections.class_id[0])
+                            if team_id in team_touches:
+                                team_touches[team_id] += 1
+                            last_assigned_id = assigned_id
+
+
             # ---- Map referee to third palette color (gold) ----
             if len(referee_detections) > 0:
                 referee_detections.class_id -= 1
@@ -110,9 +141,15 @@ def main():
                 detections=ball_detections
             )
 
+            annotated_frame = possession_annotator.annotate(
+                scene=annotated_frame,
+                detections=possession_detections
+            )
+
             video_sink.write_frame(annotated_frame)
 
     print(f"[INFO] Output saved to: {OUTPUT_VIDEO}")
+    write_touches(team_touches)
 
 
 if __name__ == '__main__':
