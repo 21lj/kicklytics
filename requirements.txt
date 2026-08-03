@@ -1,0 +1,16 @@
+ultralytics
+supervision
+opencv-python-headless
+gradio
+huggingface_hub
+tqdm
+python-dotenv
+scikit-learn
+numpy
+more-itertools
+transformers
+umap-learn
+torch
+torchvision
+pillow
+sentencepiece

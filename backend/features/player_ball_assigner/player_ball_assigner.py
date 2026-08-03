@@ -1,4 +1,5 @@
-from utils.bbox_util import get_center_of_bbox, measure_distance
+from backend.utils.bbox_util import get_center_of_bbox, measure_distance
+
 
 class PlayerBallAssigner:
     def __init__(self):
