@@ -13,3 +13,4 @@ umap-learn
 torch
 torchvision
 pillow
+sentencepiece
