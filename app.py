@@ -51,10 +51,6 @@ print(f"[INFO] YOLO loaded on {DEVICE}")
 
 # ================= INFERENCE =================
 
-# Apply GPU decorator if running on Hugging Face Spaces
-if HF_SPACES:
-    process_video = spaces.GPU(process_video)
-
 def process_video(input_video):
     if input_video is None:
         return None, "⚠️ Please upload a video clip first."
@@ -263,6 +259,11 @@ def process_video(input_video):
         import traceback
         print(traceback.format_exc())
         return None, f"❌ Error processing video: {str(e)}"
+
+
+# Apply GPU decorator ONLY after function is defined and ONLY on Spaces
+if HF_SPACES:
+    process_video = spaces.GPU(process_video)
 
 
 # ================= GRADIO UI =================
