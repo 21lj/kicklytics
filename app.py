@@ -1,3 +1,12 @@
+# ================= IMPORT SPACES FIRST =================
+# MUST be imported before any CUDA-related packages
+try:
+    import spaces
+    HF_SPACES = True
+except ImportError:
+    HF_SPACES = False
+
+# ================= STANDARD IMPORTS =================
 import os
 import tempfile
 import json
@@ -31,15 +40,20 @@ print("[INFO] Loading YOLO model from HF...")
 
 MODEL_PATH = hf_hub_download(
     repo_id="Lijo21/kicklytics-models",
-    filename="yolo-models/yolov8x/best.pt"
+    filename="yolov8x/best.pt"
 )
 
 model = YOLO(MODEL_PATH)
+model.to(DEVICE)
 
-print("[INFO] YOLO loaded")
+print(f"[INFO] YOLO loaded on {DEVICE}")
 
 
 # ================= INFERENCE =================
+
+# Apply GPU decorator if running on Hugging Face Spaces
+if HF_SPACES:
+    process_video = spaces.GPU(process_video)
 
 def process_video(input_video):
     if input_video is None:
@@ -109,7 +123,8 @@ def process_video(input_video):
                 result = model.predict(
                     frame,
                     conf=0.3,
-                    verbose=False
+                    verbose=False,
+                    device=DEVICE
                 )[0]
 
                 detections = sv.Detections.from_ultralytics(result)
@@ -230,13 +245,14 @@ def process_video(input_video):
         write_touches(team_touches)
 
         # Format stats for display
+        total_touches = max(sum(team_touches.values()), 1)
         stats_text = f"""
 ### 📊 Match Statistics
 
 | Metric | Team 1 (Blue) | Team 2 (Pink) |
 |--------|---------------|---------------|
 | **Ball Touches** | {team_touches[0]} | {team_touches[1]} |
-| **Possession %** | {team_touches[0]/max(sum(team_touches.values()), 1)*100:.1f}% | {team_touches[1]/max(sum(team_touches.values()), 1)*100:.1f}% |
+| **Possession %** | {team_touches[0]/total_touches*100:.1f}% | {team_touches[1]/total_touches*100:.1f}% |
 
 **Total Events Tracked:** {sum(team_touches.values())}
         """
@@ -244,6 +260,8 @@ def process_video(input_video):
         return output_video, stats_text
 
     except Exception as e:
+        import traceback
+        print(traceback.format_exc())
         return None, f"❌ Error processing video: {str(e)}"
 
 
@@ -282,13 +300,6 @@ with gr.Blocks(title="Kicklytics - Football Analysis") as demo:
     
     stats_output = gr.Markdown(label="📊 Statistics")
     
-    # Examples section
-    gr.Examples(
-        examples=[],
-        inputs=input_video,
-        label="Example Videos (upload your own above)"
-    )
-    
     gr.Markdown("""
     ---
     **How it works:** The model detects players, assigns them to teams based on jersey colors, 
@@ -303,4 +314,4 @@ with gr.Blocks(title="Kicklytics - Football Analysis") as demo:
 
 
 if __name__ == "__main__":
-    demo.launch(share=False)
+    demo.launch()
