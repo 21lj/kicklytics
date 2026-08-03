@@ -31,7 +31,7 @@ print("[INFO] Loading YOLO model from HF...")
 
 MODEL_PATH = hf_hub_download(
     repo_id="Lijo21/kicklytics-models",
-    filename="yolov8x/best.pt"
+    filename="yolo-models/yolov8x/best.pt"
 )
 
 model = YOLO(MODEL_PATH)
