@@ -238,7 +238,7 @@ def process_video(input_video):
 
                 sink.write_frame(annotated)
 
-        write_touches(team_touches)
+        # write_touches(team_touches)
 
         # Format stats for display
         total_touches = max(sum(team_touches.values()), 1)
