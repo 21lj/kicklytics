@@ -20,6 +20,7 @@ from huggingface_hub import hf_hub_download
 from backend.utils.video_utils import extract_crops, write_touches
 from backend.features.team_assigner import TeamClassifier, resolve_goalkeepers_teamid
 from backend.features.player_ball_assigner import PlayerBallAssigner
+from backend.features.possession_track import PossessionTracker, draw_possession
 
 import torch
 
@@ -32,6 +33,10 @@ PLAYER_ID = 2
 REFEREE_ID = 3
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+team_colors = {
+    1: (255, 191, 0),  
+    2: (147, 20, 255),  
+}
 
 
 # ================= LOAD MODEL =================
@@ -96,6 +101,7 @@ def process_video(input_video):
         tracker.reset()
 
         ball_assigner = PlayerBallAssigner()
+        possession_tracker = PossessionTracker()
 
         team_touches = {0: 0, 1: 0}
         last_assigned_id = None
@@ -112,10 +118,10 @@ def process_video(input_video):
         print("[INFO] Processing video...")
 
         with sink:
-            for frame in tqdm(
+            for frame_idx, frame in enumerate(tqdm(
                 frames,
                 total=video_info.total_frames
-            ):
+            )):
                 result = model.predict(
                     frame,
                     conf=0.3,
@@ -174,6 +180,19 @@ def process_video(input_video):
                         gk_detections
                     )
 
+                # ---- Possession % tracking ----
+                player_boxes = list(player_detections.xyxy) + list(gk_detections.xyxy)
+                team_ids = (
+                    [int(c) + 1 for c in player_detections.class_id] +
+                    [int(c) + 1 for c in gk_detections.class_id]
+                )
+                ball_bbox = ball_detections.xyxy[0] if len(ball_detections) > 0 else None
+
+                state = possession_tracker.update(
+                    ball_bbox, player_boxes, team_ids,
+                    frame_number=frame_idx, fps=video_info.fps
+                )
+
                 # -------- POSSESSION --------
                 possession_detections = sv.Detections.empty()
 
@@ -231,6 +250,8 @@ def process_video(input_video):
                     ball_detections
                 )
 
+                annotated = draw_possession(annotated, state, team_colors)
+
                 annotated = possession_annotator.annotate(
                     annotated,
                     possession_detections
@@ -238,20 +259,19 @@ def process_video(input_video):
 
                 sink.write_frame(annotated)
 
-        # write_touches(team_touches)
+        # write_touches(state)
 
         # Format stats for display
         total_touches = max(sum(team_touches.values()), 1)
         stats_text = f"""
-### 📊 Match Statistics
+        ### 📊 Match Statistics
 
-| Metric | Team 1 (Blue) | Team 2 (Pink) |
-|--------|---------------|---------------|
-| **Ball Touches** | {team_touches[0]} | {team_touches[1]} |
-| **Possession %** | {team_touches[0]/total_touches*100:.1f}% | {team_touches[1]/total_touches*100:.1f}% |
+        | Metric | Team 1 (Blue) | Team 2 (Pink) |
+        |--------|---------------|---------------|
+        | **Ball Touches** | {team_touches[0]} | {team_touches[1]} |
 
-**Total Events Tracked:** {sum(team_touches.values())}
-        """
+        **Total Events Tracked:** {sum(team_touches.values())}
+                """
 
         return output_video, stats_text
 

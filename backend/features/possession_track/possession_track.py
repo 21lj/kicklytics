@@ -2,6 +2,7 @@ import cv2
 import math
 import time
 from dataclasses import dataclass
+import supervision as sv
 
 
 @dataclass
@@ -46,7 +47,7 @@ class PossessionTracker:
 
     def _nearest_team(self, ball_box, player_boxes, team_ids):
 
-        if not ball_box:
+        if ball_box is None or len(ball_box) == 0:
             return -1, None
 
         bx = (ball_box[0] + ball_box[2]) / 2
@@ -177,7 +178,7 @@ def draw_possession(frame, state, team_colors):
     bar_height = 22
 
     x = (w - bar_width) // 2
-    y = h - 55
+    y = 40
 
     team1_color = team_colors.get(1, (0, 0, 255))
     team2_color = team_colors.get(2, (255, 0, 0))
@@ -228,13 +229,34 @@ def draw_possession(frame, state, team_colors):
         -1: "LOOSE BALL"
     }
 
-    cv2.putText(
-        frame,
-        f"Possession : {team_name[state.current_team]}",
-        (x, y - 12),
+    
+    text = f"Possession : {team_name[state.current_team]}"
+
+    # Get text size
+    (text_w, text_h), baseline = cv2.getTextSize(
+        text,
         cv2.FONT_HERSHEY_SIMPLEX,
         0.65,
+        2
+    )
+
+    # Draw black background rectangle
+    cv2.rectangle(
+        frame,
+        (x, y - text_h - 20),
+        (x + text_w + 10, y),
         (0, 0, 0),
+        -1
+    )
+
+    # Draw white text
+    cv2.putText(
+        frame,
+        text,
+        (x + 5, y - 8),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.65,
+        (255, 255, 255),
         2,
     )
 
