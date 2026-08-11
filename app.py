@@ -100,13 +100,19 @@ def process_video(input_video):
         tracker = sv.ByteTrack()
         tracker.reset()
 
+        video_info = sv.VideoInfo.from_video_path(input_video)
+
+        # Distance thresholds were tuned in pixels on a ~1280px-wide clip.
+        # Scale them so possession/ball-assignment works on any uploaded resolution.
+        res_scale = video_info.width / 1280
+
         ball_assigner = PlayerBallAssigner()
-        possession_tracker = PossessionTracker()
+        ball_assigner.max_player_ball_distance = int(70 * res_scale)
+
+        possession_tracker = PossessionTracker(proximity_px=int(60 * res_scale))
 
         team_touches = {0: 0, 1: 0}
         last_assigned_id = None
-
-        video_info = sv.VideoInfo.from_video_path(input_video)
 
         sink = sv.VideoSink(
             output_video,
@@ -179,6 +185,12 @@ def process_video(input_video):
                         player_detections,
                         gk_detections
                     )
+                elif len(gk_detections):
+                    # Can't tell GK's team without players on screen to compare
+                    # against (e.g. camera zoomed tight on keeper). Raw class_id
+                    # would still be GK_ID (1), which looks like a valid team id
+                    # and gets drawn/counted wrong -> skip GK until players reappear.
+                    gk_detections = sv.Detections.empty()
 
                 # ---- Possession % tracking ----
                 player_boxes = list(player_detections.xyxy) + list(gk_detections.xyxy)
@@ -269,6 +281,7 @@ def process_video(input_video):
         | Metric | Team 1 (Blue) | Team 2 (Pink) |
         |--------|---------------|---------------|
         | **Ball Touches** | {team_touches[0]} | {team_touches[1]} |
+        | **Possession %** | {state.team1_percentage:.1f}% | {state.team2_percentage:.1f}% |
 
         **Total Events Tracked:** {sum(team_touches.values())}
                 """
