@@ -6,11 +6,24 @@ try:
 except ImportError:
     HF_SPACES = False
 
+    # Local/CPU dev has no `spaces` package. Stub it so @spaces.GPU(...) below
+    # works everywhere without falling back to the old post-hoc reassignment
+    # pattern (`process_video = spaces.GPU(process_video)`).
+    class _SpacesStub:
+        @staticmethod
+        def GPU(*args, **kwargs):
+            def decorator(fn):
+                return fn
+            return decorator
+
+    spaces = _SpacesStub()
+
 # ================= STANDARD IMPORTS =================
 import os
 import tempfile
 import json
 
+import numpy as np
 import gradio as gr
 import supervision as sv
 from tqdm import tqdm
@@ -38,6 +51,13 @@ team_colors = {
     2: (147, 20, 255),  
 }
 
+MAX_VIDEO_SECONDS = 60          # reject uploads longer than this (Section 9)
+TEAM_RECLASSIFY_STRIDE = 30     # re-run SigLIP on an already-known player every N frames (Section 4)
+INFERENCE_STRIDE = 1            # placeholder only - NOT real frame skipping. ByteTrack +
+                                 # PossessionTracker + touch counting are frame-dependent;
+                                 # skipping would need detection propagation across skipped
+                                 # frames. Left as a documented knob, not faked (Section 10).
+
 
 # ================= LOAD MODEL =================
 
@@ -45,7 +65,8 @@ print("[INFO] Loading YOLO model from HF...")
 
 MODEL_PATH = hf_hub_download(
     repo_id="Lijo21/kicklytics-models",
-    filename="yolo-models/yolov8x/best.pt"
+    filename="yolo-models/yolov8x/best.pt",
+    repo_type="model",
 )
 
 model = YOLO(MODEL_PATH)
@@ -56,10 +77,24 @@ print(f"[INFO] YOLO loaded on {DEVICE}")
 
 # ================= INFERENCE =================
 
+@spaces.GPU(duration=300)
 def process_video(input_video):
     if input_video is None:
         return None, "⚠️ Please upload a video clip first."
-    
+
+    # ---- Video length protection (Section 9) ----
+    try:
+        video_info = sv.VideoInfo.from_video_path(input_video)
+    except Exception:
+        return None, "❌ Unable to open video."
+
+    duration_seconds = video_info.total_frames / video_info.fps
+    if duration_seconds > MAX_VIDEO_SECONDS:
+        return None, (
+            f"⚠️ Video is too long ({duration_seconds:.0f}s). "
+            f"Please upload a clip under {MAX_VIDEO_SECONDS}s."
+        )
+
     output_video = tempfile.NamedTemporaryFile(
         suffix=".mp4",
         delete=False
@@ -68,12 +103,21 @@ def process_video(input_video):
     try:
         print("[INFO] Extracting crops...")
 
-        crops = extract_crops(
+        # extract_crops must also return the detections it computed on the
+        # sampled frames (every `stride`-th frame) so the main loop can reuse
+        # them instead of running YOLO a second time on those frames. See
+        # note below the file for the matching backend/utils/video_utils.py
+        # change this depends on (Section 3).
+        crops, warmup_detections = extract_crops(
             input_video,
             model,
             stride=30,
-            player_id=PLAYER_ID
+            player_id=PLAYER_ID,
+            device=DEVICE
         )
+
+        if len(crops) == 0:
+            return None, "❌ No player detections found in this video."
 
         team_classifier = TeamClassifier(device=DEVICE)
         team_classifier.fit(crops)
@@ -100,8 +144,6 @@ def process_video(input_video):
         tracker = sv.ByteTrack()
         tracker.reset()
 
-        video_info = sv.VideoInfo.from_video_path(input_video)
-
         # Distance thresholds were tuned in pixels on a ~1280px-wide clip.
         # Scale them so possession/ball-assignment works on any uploaded resolution.
         res_scale = video_info.width / 1280
@@ -114,6 +156,12 @@ def process_video(input_video):
         team_touches = {0: 0, 1: 0}
         last_assigned_id = None
 
+        # Per-video team-classification cache (Section 4 + 12).
+        # tracker_id -> team_id. Declared fresh inside process_video() each
+        # call so a new upload never reuses another video's team assignments.
+        player_team_cache = {}
+        player_seen_count = {}
+
         sink = sv.VideoSink(
             output_video,
             video_info=video_info
@@ -123,19 +171,22 @@ def process_video(input_video):
 
         print("[INFO] Processing video...")
 
-        with sink:
+        with sink, torch.inference_mode():
             for frame_idx, frame in enumerate(tqdm(
                 frames,
                 total=video_info.total_frames
             )):
-                result = model.predict(
-                    frame,
-                    conf=0.3,
-                    verbose=False,
-                    device=DEVICE
-                )[0]
-
-                detections = sv.Detections.from_ultralytics(result)
+                # -------- DETECT (reuse cached detections where possible) --------
+                if frame_idx in warmup_detections:
+                    detections = warmup_detections[frame_idx]
+                else:
+                    result = model.predict(
+                        frame,
+                        conf=0.3,
+                        verbose=False,
+                        device=DEVICE
+                    )[0]
+                    detections = sv.Detections.from_ultralytics(result)
 
                 # -------- BALL --------
                 ball_detections = detections[detections.class_id == BALL_ID]
@@ -170,14 +221,28 @@ def process_video(input_video):
                     human_detections.class_id == REFEREE_ID
                 ]
 
-                # -------- TEAM CLASSIFICATION --------
+                # -------- TEAM CLASSIFICATION (tracker_id cache, Section 4) --------
                 if len(player_detections):
-                    crops = [
-                        sv.crop_image(frame, box)
-                        for box in player_detections.xyxy
-                    ]
+                    idx_needing_classification = []
 
-                    player_detections.class_id = team_classifier.predict(crops)
+                    for i, tid in enumerate(player_detections.tracker_id):
+                        seen = player_seen_count.get(tid, 0)
+                        if tid not in player_team_cache or seen % TEAM_RECLASSIFY_STRIDE == 0:
+                            idx_needing_classification.append(i)
+                        player_seen_count[tid] = seen + 1
+
+                    if idx_needing_classification:
+                        crops_to_classify = [
+                            sv.crop_image(frame, player_detections.xyxy[i])
+                            for i in idx_needing_classification
+                        ]
+                        predicted = team_classifier.predict(crops_to_classify)
+                        for i, pred in zip(idx_needing_classification, predicted):
+                            player_team_cache[player_detections.tracker_id[i]] = int(pred)
+
+                    player_detections.class_id = np.array([
+                        player_team_cache[tid] for tid in player_detections.tracker_id
+                    ])
 
                 # -------- GK TEAM --------
                 if len(gk_detections) and len(player_detections):
@@ -291,12 +356,7 @@ def process_video(input_video):
     except Exception as e:
         import traceback
         print(traceback.format_exc())
-        return None, f"❌ Error processing video: {str(e)}"
-
-
-# Apply GPU decorator ONLY after function is defined and ONLY on Spaces
-if HF_SPACES:
-    process_video = spaces.GPU(process_video)
+        return None, f"❌ Video processing failed: {str(e)}"
 
 
 # ================= GRADIO UI =================
