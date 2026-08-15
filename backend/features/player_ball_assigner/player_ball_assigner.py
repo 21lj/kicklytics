@@ -31,4 +31,4 @@ class PlayerBallAssigner:
                     min_distance = distance
                     assigned_player = player_id
 
-            return assigned_player
+        return assigned_player
