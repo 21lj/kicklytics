@@ -146,12 +146,13 @@ def process_video(input_video):
 
         # Distance thresholds were tuned in pixels on a ~1280px-wide clip.
         # Scale them so possession/ball-assignment works on any uploaded resolution.
-        res_scale = video_info.width / 1280
+        # res_scale = video_info.width / 1280
 
         ball_assigner = PlayerBallAssigner()
-        ball_assigner.max_player_ball_distance = int(70 * res_scale)
+        possession_tracker = PossessionTracker()
+        # ball_assigner.max_player_ball_distance = int(70 * res_scale)
 
-        possession_tracker = PossessionTracker(proximity_px=int(60 * res_scale))
+        # possession_tracker = PossessionTracker(proximity_px=int(60 * res_scale))
 
         team_touches = {0: 0, 1: 0}
         last_assigned_id = None
