@@ -77,7 +77,7 @@ print(f"[INFO] YOLO loaded on {DEVICE}")
 
 # ================= INFERENCE =================
 
-@spaces.GPU(duration=600)
+@spaces.GPU(duration=120)
 def process_video(input_video):
     if input_video is None:
         return None, "⚠️ Please upload a video clip first."
