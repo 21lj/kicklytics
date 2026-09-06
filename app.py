@@ -1,5 +1,5 @@
 import gradio as gr
-from .backend.main import process_video
+from backend.main import process_video
 
 with gr.Blocks(title="Kicklytics - Football Analysis") as demo:
 
