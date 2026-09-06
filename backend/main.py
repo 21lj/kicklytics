@@ -5,11 +5,11 @@ import torch
 import tempfile
 import cv2
 
-from utils.video_utils import extract_crops
-from features.team_assigner import TeamClassifier, resolve_goalkeepers_teamid
-from features.player_ball_assigner import PlayerBallAssigner
-from features.possession_track import PossessionTracker, draw_possession
-from features.passlane import HybridPassingLane
+from .utils.video_utils import extract_crops
+from .features.team_assigner import TeamClassifier, resolve_goalkeepers_teamid
+from .features.player_ball_assigner import PlayerBallAssigner
+from .features.possession_track import PossessionTracker, draw_possession
+from .features.passlane import HybridPassingLane
 
 from .setup import (
     convert_video_to_h264,
