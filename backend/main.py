@@ -26,7 +26,7 @@ from .setup import (
     PITCH_RENDER_BACKEND,
 )
 
-from features.pitch_geometry import (
+from .features.pitch_geometry import (
     PitchGeometryFilter,
     HomographyEstimator,
     build_positions,
