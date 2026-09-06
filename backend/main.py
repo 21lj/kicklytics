@@ -1,3 +1,24 @@
+# ================= IMPORT SPACES FIRST =================
+# MUST be imported before any CUDA-related packages
+try:
+    import spaces
+    HF_SPACES = True
+except ImportError:
+    HF_SPACES = False
+
+    # Local/CPU dev has no `spaces` package. Stub it so @spaces.GPU(...) below
+    # works everywhere without falling back to the old post-hoc reassignment
+    # pattern (`process_video = spaces.GPU(process_video)`).
+    class _SpacesStub:
+        @staticmethod
+        def GPU(*args, **kwargs):
+            def decorator(fn):
+                return fn
+            return decorator
+
+    spaces = _SpacesStub()
+
+    
 import numpy as np
 import supervision as sv
 from tqdm import tqdm
@@ -34,26 +55,6 @@ from .features.pitch_geometry import (
     create_pitch_renderer,
     classify_geometry_status,
 )
-
-# ================= IMPORT SPACES FIRST =================
-# MUST be imported before any CUDA-related packages
-try:
-    import spaces
-    HF_SPACES = True
-except ImportError:
-    HF_SPACES = False
-
-    # Local/CPU dev has no `spaces` package. Stub it so @spaces.GPU(...) below
-    # works everywhere without falling back to the old post-hoc reassignment
-    # pattern (`process_video = spaces.GPU(process_video)`).
-    class _SpacesStub:
-        @staticmethod
-        def GPU(*args, **kwargs):
-            def decorator(fn):
-                return fn
-            return decorator
-
-    spaces = _SpacesStub()
 
 model, pitch_model = load_models()
 # ==========================================================
